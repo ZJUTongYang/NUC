@@ -2,6 +2,8 @@
 
 This repository contains the supplementary materal (code and video) for the journal paper entitled ``Template-free Non-revisiting Uniform Coverage Path Planning on Curved Surfaces", IEEE/ASME Transactions on Mechatronics (T-Mech). The coverage skeleton generation in C++ has been wrapped to python for easy usage. 
 
+[Paper Link](https://www.researchgate.net/publication/371391703)
+
 ## Video Link
 
 [Supplementary Video](https://drive.google.com/file/d/1sYnp-nKgyRzVhqUaI8ly20HRpIq9SC3B/view?usp=sharing)
