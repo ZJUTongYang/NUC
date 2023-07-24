@@ -6,6 +6,18 @@ This repository contains the supplementary materal (code and video) for the jour
 
 [Supplementary Video](https://drive.google.com/file/d/1sYnp-nKgyRzVhqUaI8ly20HRpIq9SC3B/view?usp=sharing)
 
+## Dependencies
+
+1. pybind11
+```
+pip3 install pybind11
+```
+
+2. trimesh
+```
+pip3 install trimesh
+```
+
 ## Usage
 
 1. Compile the C++ code into python
@@ -22,6 +34,10 @@ python3 nuc.py
 ```
 visualisation.m
 ```
+
+## Bug Report
+
+The code does not have any randomness so bugs can be easily reproduced. If your surface triggers a bug in my code, please send the mesh data to me. 
 
 ## Cite This Paper
 ```
