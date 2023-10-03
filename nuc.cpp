@@ -1,568 +1,358 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
-#include <iostream>
-#include <algorithm>
 #include <vector>
+#include <unordered_map>
 
-struct Vertex
+namespace NUC
 {
-	std::vector<int> adj_cell_;
-	std::vector<int> sub_ver_;
-};
-
-std::vector<int> compute_simple_bd(std::vector<int> mesh_tri, unsigned int facet_num)
-{
-	unsigned int n = *std::max_element(mesh_tri.begin(), mesh_tri.end())+1;
-	std::vector<int> row_temp;
-	row_temp.resize(n, 0);
-	std::vector<std::vector<int> > amd;
-	amd.resize(n, row_temp);
-
-	// We collect the pair of points that need checking connectivity
-	std::vector<std::pair<int, int> > P;
-	P.clear();
-	for (unsigned int i = 0; i < facet_num; ++i)
+    void compute_adjacency_matrix_directed(const std::vector<int>& mesh_tri, int tri_num, int ver_num,
+		std::unordered_map<int, int>& amd)
 	{
-		P.emplace_back(std::pair<int, int>(mesh_tri[i * 3 + 0], mesh_tri[i * 3 + 1]));
-		P.emplace_back(std::pair<int, int>(mesh_tri[i * 3 + 1], mesh_tri[i * 3 + 2]));
-		P.emplace_back(std::pair<int, int>(mesh_tri[i * 3 + 2], mesh_tri[i * 3 + 0]));
+		int index, first_ver, second_ver;
+		for (unsigned int i = 0; i < tri_num; ++i)
+		{
+			if (mesh_tri[i * 3] == -1)
+				continue;
+
+			first_ver = mesh_tri[i * 3];
+			second_ver = mesh_tri[i * 3 + 1];
+			index = first_ver + ver_num * second_ver;
+			amd[index] = i;
+
+			first_ver = mesh_tri[i * 3 + 1];
+			second_ver = mesh_tri[i * 3 + 2];
+			index = first_ver + ver_num * second_ver;
+			amd[index] = i;
+
+			first_ver = mesh_tri[i * 3 + 2];
+			second_ver = mesh_tri[i * 3];
+			index = first_ver + ver_num * second_ver;
+			amd[index] = i;
+		}
 	}
 
-	for (auto iter = P.begin(); iter != P.end(); ++iter)
+    struct Facet
+    {
+    public: 
+		// The index of the facet in the mesh
+        int index_;
+
+        Facet(){}
+        Facet(const std::vector<int>& mesh_tri, const std::vector<double>& mesh_ver, 
+            int tri_index, int subver_index, int child_in_parent_index)
+        {
+			child_.clear();
+			index_ = tri_index;
+			int v0 = mesh_tri[tri_index * 3];
+			int v1 = mesh_tri[tri_index * 3 + 1];
+			int v2 = mesh_tri[tri_index * 3 + 2];
+			m_ = { (mesh_ver[v0 * 3] + mesh_ver[v1 * 3]) / 2, (mesh_ver[v0 * 3 + 1] + mesh_ver[v1 * 3 + 1]) / 2, (mesh_ver[v0 * 3 + 2] + mesh_ver[v1 * 3 + 2]) / 2 ,
+				(mesh_ver[v1 * 3] + mesh_ver[v2 * 3]) / 2, (mesh_ver[v1 * 3 + 1] + mesh_ver[v2 * 3 + 1]) / 2, (mesh_ver[v1 * 3 + 2] + mesh_ver[v2 * 3 + 2]) / 2 ,
+				(mesh_ver[v2 * 3] + mesh_ver[v0 * 3]) / 2, (mesh_ver[v2 * 3 + 1] + mesh_ver[v0 * 3 + 1]) / 2, (mesh_ver[v2 * 3 + 2] + mesh_ver[v0 * 3 + 2]) / 2
+			};
+			b_ = { (mesh_ver[v0 * 3] + mesh_ver[v1 * 3] + mesh_ver[v2 * 3]) / 3,
+				(mesh_ver[v0 * 3 + 1] + mesh_ver[v1 * 3 + 1] + mesh_ver[v2 * 3 + 1]) / 3,
+				(mesh_ver[v0 * 3 + 2] + mesh_ver[v1 * 3 + 2] + mesh_ver[v2 * 3 + 2]) / 3
+			};
+			polygon_center_ = { (mesh_ver[v1 * 3] + m_[1 * 3] + b_[0] + m_[0 * 3]) / 4, (mesh_ver[v1 * 3 + 1] + m_[1 * 3 + 1] + b_[0 + 1] + m_[0 * 3 + 1]) / 4, (mesh_ver[v1 * 3 + 2] + m_[1 * 3 + 2] + b_[0 + 2] + m_[0 * 3 + 2]) / 4,
+								(mesh_ver[v2 * 3] + m_[2 * 3] + b_[0] + m_[1 * 3]) / 4, (mesh_ver[v2 * 3 + 1] + m_[2 * 3 + 1] + b_[0 + 1] + m_[1 * 3 + 1]) / 4, (mesh_ver[v2 * 3 + 2] + m_[2 * 3 + 2] + b_[0 + 2] + m_[1 * 3 + 2]) / 4,
+								(mesh_ver[v0 * 3] + m_[0 * 3] + b_[0] + m_[2 * 3]) / 4, (mesh_ver[v0 * 3 + 1] + m_[0 * 3 + 1] + b_[0 + 1] + m_[2 * 3 + 1]) / 4, (mesh_ver[v0 * 3 + 2] + m_[0 * 3 + 2] + b_[0 + 2] + m_[2 * 3 + 2]) / 4
+			};
+
+			subver_index_ = subver_index;
+			child_in_parent_index_ = child_in_parent_index;
+        }
+        void getCyclicCoveragePath(std::vector<int>& int_path, std::vector<double>& double_path) const
+		{
+			int subver_index = subver_index_ % 3;
+			if (subver_index == 0)
+			{
+				int_path = { index_ * 3, index_ * 3 + 1, index_ * 3 + 2 };
+				double_path.assign(polygon_center_.begin(), polygon_center_.end());
+			}
+			else if (subver_index == 1)
+			{
+				int_path = { index_ * 3 + 1, index_ * 3 + 2, index_ * 3 };
+				double_path = { polygon_center_[3], polygon_center_[4], polygon_center_[5], polygon_center_[6], polygon_center_[7], polygon_center_[8], polygon_center_[0], polygon_center_[1], polygon_center_[2] };
+			}
+			else if (subver_index == 2)
+			{
+				int_path = { index_ * 3 + 2, index_ * 3, index_ * 3 + 1 };
+				double_path = { polygon_center_[6], polygon_center_[7], polygon_center_[8], polygon_center_[0], polygon_center_[1], polygon_center_[2], polygon_center_[3], polygon_center_[4], polygon_center_[5] };
+			}
+		}
+
+		std::vector<Facet*> child_;
+		int child_in_parent_index_;
+    private:
+
+		std::vector<double> m_; // The Euclidean position of the midpoint of the three edges
+		std::vector<double> b_; // The Euclidean position of the barocenter of the facet
+		std::vector<double> polygon_center_; // The Euclidean position of the barocenter of sub-facets
+		int subver_index_; // The order of the sub-facets designated by who the parent node is
+    };
+
+	Facet* insertTreeNode(Facet* parent, const std::vector<int>& mesh_tri, const std::vector<double>& mesh_ver, 
+		int tri_index, int subver_index, int child_in_parent_index)
 	{
-		int p1 = iter->first;
-		int p2 = iter->second;
-		if (amd[p2][p1] == 1)
-			amd[p2][p1] = 0;
+		parent->child_.emplace_back(new Facet(mesh_tri, mesh_ver, tri_index, subver_index, child_in_parent_index));
+		return parent->child_.back();
+	}
+
+	void deleteTreeBranch(Facet* node)
+	{
+		if (node == nullptr)
+			return;
+		for (Facet* child : node->child_)
+		{
+			deleteTreeBranch(child);
+		}
+		delete node;
+	}
+
+	void traverse(Facet* node, const std::vector<int>& mesh_tri, const std::vector<double>& mesh_ver, 
+		std::vector<int>& topological_path, std::vector<double>& geometric_path, int position_to_insert)
+	{
+		if (node == nullptr)
+			return;
+
+		std::vector<int> cyclic_int_path;
+		std::vector<double> cyclic_double_path;
+		node->getCyclicCoveragePath(cyclic_int_path, cyclic_double_path);
+
+		topological_path.insert(topological_path.begin() + position_to_insert, cyclic_int_path.begin(), cyclic_int_path.end());
+		geometric_path.insert(geometric_path.begin() + position_to_insert * 3, cyclic_double_path.begin(), cyclic_double_path.end());
+
+		int the_tri_index = node->index_;
+
+		int v0 = mesh_tri[the_tri_index * 3];
+		int v1 = mesh_tri[the_tri_index * 3+1];
+		int v2 = mesh_tri[the_tri_index * 3+2];
+		int child_in_parent_index;
+		int loc;
+		for (auto iter = node->child_.begin(); iter != node->child_.end(); ++iter)
+		{
+			child_in_parent_index = (*iter)->child_in_parent_index_;
+			if (child_in_parent_index == 0)
+			{
+				loc = std::find(topological_path.begin(), topological_path.end(), the_tri_index * 3 + 2) - topological_path.begin();
+			}
+			else if (child_in_parent_index == 1)
+			{
+				loc = std::find(topological_path.begin(), topological_path.end(), the_tri_index * 3) - topological_path.begin();
+			}
+			else if (child_in_parent_index == 2)
+			{
+				loc = std::find(topological_path.begin(), topological_path.end(), the_tri_index * 3 + 1) - topological_path.begin();
+			}
+
+			traverse(*iter, mesh_tri, mesh_ver, topological_path, geometric_path, loc + 1);
+		}
+	}
+
+	std::pair<std::vector<int>, std::vector<double> > nuc(const std::vector<int>& mesh_tri, const std::vector<double>& mesh_ver, int initial_tri_index)
+    {
+		std::vector<int> topological_coverage_path;
+		std::vector<double> geometric_coverage_path;
+
+		std::cout << "start generating non-revisiting uniform coverage path" << std::endl;
+		Facet* root_ = nullptr;
+
+		int tri_num = mesh_tri.size() / 3;
+		int ver_num = mesh_ver.size() / 3;
+
+		// We first collect the adjacency among facets
+		std::unordered_map<int, int> amd; // <first_vertex_index + second_vertex_index * ver_num, facet_index>
+		compute_adjacency_matrix_directed(mesh_tri, tri_num, ver_num, amd);
+
+		std::cout << "size of amd: " << amd.size() << std::endl;
+		// We avoid repetitive coverage
+		std::vector<int> covered;
+		covered.resize(tri_num, 0);
+
+		// Invalid facets are marked as "covered", so that they are not considered during path deformation
+		for (unsigned int i = 0; i < tri_num; ++i)
+		{
+			if (mesh_tri[i * 3] == -1)
+			{
+				covered[i] = 1;
+			}
+		}
+
+		// The vertex indices of the source facet
+		int v0 = mesh_tri[initial_tri_index * 3];
+		int v1 = mesh_tri[initial_tri_index * 3 + 1];
+		int v2 = mesh_tri[initial_tri_index * 3 + 2];
+
+		// To avoid the problem in Theorem 1 in the paper, we select the best order of the sub-facets of the source facet
+		// If any of the edges does not have adjacent facets, we select it as the "back"
+		int subver_index;
+		if (amd.find(v1 + v0 * ver_num) == amd.end())
+		{
+			subver_index = 0;
+		}
+		else if (amd.find(v2 + v1 * ver_num) == amd.end())
+		{
+			subver_index = 1;
+		}
+		else if (amd.find(v0 + v2 * ver_num) == amd.end())
+		{
+			subver_index = 2;
+		}
 		else
-			amd[p1][p2] = 1;
-	}
-
-	// Create the boundaries
-	int count = 0;
-	for (auto iter = amd.begin(); iter != amd.end(); ++iter)
-	{
-		for (auto iter2 = iter->begin(); iter2 != iter->end(); ++iter2)
 		{
-			if (*iter2 != 0)
-				count++;
+			subver_index = 0;
 		}
-	}
-
-	std::vector<int> bd;
-	// We find the first non-zero element
-	int x = -1, y = -1;
-	for (unsigned int i = 0; i < n; ++i)
-	{
-		for (unsigned int j = 0; j < n; ++j)
-		{
-			if (amd[i][j] != 0)
-			{
-				x = i;
-				y = j;
-				break;
-			}
-		}
-		if (x != -1)
-			break;
-	}
-
-	while (y != -1)
-	{
-		bd.emplace_back(x);
-		amd[x][y] = 0;
-		x = y;
-		y = -1;
-		for (unsigned int j = 0; j < n; ++j)
-		{
-			if (amd[x][j] != 0)
-			{
-				y = j;
-				break;
-			}
-		}
-	}
-
-	return bd;
-}
-
-
-std::vector<std::vector<int> > compute_adjacency_matrix(std::vector<int> mesh_tri, unsigned int facet_num)
-{
-	std::vector<std::vector<int> > am;
-	int max_num = *std::max_element(mesh_tri.begin(), mesh_tri.end())+1;
-	std::vector<int> temp;
-	temp.resize(max_num, 0);
-	am.resize(max_num, temp);
-	for (unsigned int i = 0; i < facet_num; ++i)
-	{
-		am[mesh_tri[i * 3 + 0]][mesh_tri[i * 3 + 1]] = 1;
-		am[mesh_tri[i * 3 + 1]][mesh_tri[i * 3 + 0]] = 1;
-		am[mesh_tri[i * 3 + 1]][mesh_tri[i * 3 + 2]] = 1;
-		am[mesh_tri[i * 3 + 2]][mesh_tri[i * 3 + 1]] = 1;
-		am[mesh_tri[i * 3 + 2]][mesh_tri[i * 3 + 0]] = 1;
-		am[mesh_tri[i * 3 + 0]][mesh_tri[i * 3 + 2]] = 1;
-	}
-
-	return am;
-}
-
-void findAdjacentFacet(std::vector<int> mesh_tri, unsigned int facet_num, std::vector<std::vector<int> >& adjFacetList)
-{
-	int N = *std::max_element(mesh_tri.begin(), mesh_tri.end())+1;
-
-	std::vector<int> row_temp;
-	row_temp.resize(N, -1);
-	std::vector<std::vector<int> > adj_matrix;
-	adj_matrix.resize(N, row_temp);
-
-	for (unsigned int i = 0; i < facet_num; ++i)
-	{
-		int c1 = mesh_tri[i * 3 + 0];
-		int c2 = mesh_tri[i * 3 + 1];
-		adj_matrix[c1][c2] = i;
-
-		c1 = mesh_tri[i * 3 + 1];
-		c2 = mesh_tri[i * 3 + 2];
-		adj_matrix[c1][c2] = i;
-
-		c1 = mesh_tri[i * 3 + 2];
-		c2 = mesh_tri[i * 3 + 0];
-		adj_matrix[c1][c2] = i;
-
-	}
-
-	std::vector<int> temp;
-	adjFacetList.resize(facet_num, temp);
-	for (unsigned int i = 0; i < facet_num; ++i)
-	{
-		int c1 = mesh_tri[i * 3 + 0];
-		int c2 = mesh_tri[i * 3 + 1];
-		adjFacetList[i].emplace_back(adj_matrix[c2][c1]);
 		
-		c1 = mesh_tri[i * 3 + 1];
-		c2 = mesh_tri[i * 3 + 2];
-		adjFacetList[i].emplace_back(adj_matrix[c2][c1]);
+		// We put the initial facet at the root position
+		root_ = new Facet(mesh_tri, mesh_ver, initial_tri_index, subver_index, -1);
 
-		c1 = mesh_tri[i * 3 + 2];
-		c2 = mesh_tri[i * 3 + 0];
-		adjFacetList[i].emplace_back(adj_matrix[c2][c1]);
+		covered[initial_tri_index] = 1;
+		std::list<Facet*> Q;
+		Q.emplace_back(root_);
 
-	}
-
-}
-
-void edgeDivision(std::vector<double> mesh_ver, 
-	std::vector<int> mesh_tri, unsigned int facet_num, 
-	std::vector<double>& sub_division_ver, 
-	std::vector<int>& sub_division_tri, 
-	std::vector<Vertex>& vertices)
-{
-	vertices.clear();
-	Vertex temp;
-	vertices.resize(mesh_tri.size() / 3, temp);
-
-	// Using the barocenter and the midpoint of edges, split original triangles
-
-	std::vector<int> global_midpoint_index;
-	std::vector<std::vector<int> > am = compute_adjacency_matrix(mesh_tri, facet_num);
-
-	int n = 0; 
-	for (unsigned int i = 0; i < am.size(); ++i)
-	{
-		for (unsigned int j = 0; j < am[0].size(); ++j)
+		int first_ver, second_ver;
+		while (!Q.empty())
 		{
-			if (am[i][j] != 0)
-				n++;
-		}
-	}
-	n /= 2;
+			Facet* the_node = Q.front();
+			Q.pop_front();
 
-	sub_division_ver.reserve(mesh_ver.size() + n * 3);
-	sub_division_ver.assign(mesh_ver.begin(), mesh_ver.end());
+			int tri_index = the_node->index_;
+			v0 = mesh_tri[tri_index * 3];
+			v1 = mesh_tri[tri_index * 3 + 1];
+			v2 = mesh_tri[tri_index * 3 + 2];
 
-	n = mesh_ver.size() / 3;
-	for (unsigned int p = 0; p < facet_num; ++p)
-	{
-		// p is the index of triangles in the original mesh
-		int i = mesh_tri[p * 3 + 0];
-		int j = mesh_tri[p * 3 + 1];
-		if (am[i][j] < 3)
-		{
-			double x = (mesh_ver[i * 3 + 0] + mesh_ver[j * 3 + 0]) / 2;
-			double y = (mesh_ver[i * 3 + 1] + mesh_ver[j * 3 + 1]) / 2;
-			double z = (mesh_ver[i * 3 + 2] + mesh_ver[j * 3 + 2]) / 2;
-			sub_division_ver.emplace_back(x);
-			sub_division_ver.emplace_back(y);
-			sub_division_ver.emplace_back(z);
-			am[i][j] = n;
-			am[j][i] = n;
-			n++;
-			global_midpoint_index.emplace_back(n);
-		}
-
-		i = mesh_tri[p * 3 + 1];
-		j = mesh_tri[p * 3 + 2];
-		if (am[i][j] < 3)
-		{
-			double x = (mesh_ver[i * 3 + 0] + mesh_ver[j * 3 + 0]) / 2;
-			double y = (mesh_ver[i * 3 + 1] + mesh_ver[j * 3 + 1]) / 2;
-			double z = (mesh_ver[i * 3 + 2] + mesh_ver[j * 3 + 2]) / 2;
-			sub_division_ver.emplace_back(x);
-			sub_division_ver.emplace_back(y);
-			sub_division_ver.emplace_back(z);
-			am[i][j] = n;
-			am[j][i] = n;
-			n++;
-			global_midpoint_index.emplace_back(n);
-		}
-
-		i = mesh_tri[p * 3 + 2];
-		j = mesh_tri[p * 3 + 0];
-		if (am[i][j] < 3)
-		{
-			double x = (mesh_ver[i * 3 + 0] + mesh_ver[j * 3 + 0]) / 2;
-			double y = (mesh_ver[i * 3 + 1] + mesh_ver[j * 3 + 1]) / 2;
-			double z = (mesh_ver[i * 3 + 2] + mesh_ver[j * 3 + 2]) / 2;
-			sub_division_ver.emplace_back(x);
-			sub_division_ver.emplace_back(y);
-			sub_division_ver.emplace_back(z);
-			am[i][j] = n;
-			am[j][i] = n;
-			n++;
-			global_midpoint_index.emplace_back(n);
-		}
-	}
-
-	// "am" now stores the indices of midpoint of all edges
-	// Create the refined triangular mesh (for divisions)
-	sub_division_tri.resize(mesh_tri.size()*4, 0);
-
-	for (unsigned int i = 0; i < facet_num; ++i)
-	{
-		int verindex[4];
-		verindex[0] = mesh_tri[i * 3 + 0];
-		verindex[1] = mesh_tri[i * 3 + 1];
-		verindex[2] = mesh_tri[i * 3 + 2];
-		verindex[3] = mesh_tri[i * 3 + 0];
-
-		// we calculate the barocenter
-		double P[3][3];
-		for (unsigned int j = 0; j < 3; ++j)
-		{
-			P[j][0] = mesh_ver[verindex[j] * 3 + 0];
-			P[j][1] = mesh_ver[verindex[j] * 3 + 1];
-			P[j][2] = mesh_ver[verindex[j] * 3 + 2];
-		}
-
-		double b[3];
-		for(unsigned int j = 0; j < 3; ++j)
-			b[j] = (P[0][j]+P[1][j]+P[2][j]) / 3;
-
-		int b1 = sub_division_ver.size() / 3;
-		sub_division_ver.emplace_back(b[0]);
-		sub_division_ver.emplace_back(b[1]);
-		sub_division_ver.emplace_back(b[2]);
-
-		int v1 = verindex[0];
-		int v2 = verindex[1];
-		int v3 = verindex[2];
-		int m1 = am[v1][v2];
-		int m2 = am[v2][v3];
-		int m3 = am[v3][v1];
-		sub_division_tri[(i * 3 + 0) * 4 + 0] = b1;
-		sub_division_tri[(i * 3 + 0) * 4 + 1] = m1;
-		sub_division_tri[(i * 3 + 0) * 4 + 2] = v2;
-		sub_division_tri[(i * 3 + 0) * 4 + 3] = m2;
-
-		sub_division_tri[(i * 3 + 1) * 4 + 0] = b1;
-		sub_division_tri[(i * 3 + 1) * 4 + 1] = m2;
-		sub_division_tri[(i * 3 + 1) * 4 + 2] = v3;
-		sub_division_tri[(i * 3 + 1) * 4 + 3] = m3;
-
-		sub_division_tri[(i * 3 + 2) * 4 + 0] = b1;
-		sub_division_tri[(i * 3 + 2) * 4 + 1] = m3;
-		sub_division_tri[(i * 3 + 2) * 4 + 2] = v1;
-		sub_division_tri[(i * 3 + 2) * 4 + 3] = m1;
-
-		vertices[i].sub_ver_.emplace_back(i * 3 + 0);
-		vertices[i].sub_ver_.emplace_back(i * 3 + 1);
-		vertices[i].sub_ver_.emplace_back(i * 3 + 2);
-	}
-}
-
-
-std::pair<int, int> locateFacet(std::vector<int> mesh_tri, int v1, int v2)
-{
-	std::pair<int, int>  result(-1, -1);
-	
-	for (unsigned int i = 0; i < mesh_tri.size() / 3; ++i)
-	{
-		if (mesh_tri[i * 3 + 0] == v1 && mesh_tri[i * 3 + 1] == v2)
-		{
-			result.first = i;
-			result.second = 0;
-			return result;
-		}
-		else if (mesh_tri[i * 3 + 1] == v1 && mesh_tri[i * 3 + 2] == v2)
-		{
-			result.first = i;
-			result.second = 1;
-			return result;
-		}
-		else if (mesh_tri[i * 3 + 2] == v1 && mesh_tri[i * 3 + 0] == v2)
-		{
-			result.first = i;
-			result.second = 2;
-			return result;
-		}
-	}
-	return result;
-}
-
-std::vector<int> NUC(std::vector<int> mesh_tri, std::vector<double> mesh_ver, std::vector<Vertex> vertices)
-{
-	std::vector<int> result_path;
-
-	std::vector<int> bd = compute_simple_bd(mesh_tri, mesh_tri.size()/3);
-	if(bd.size() == 0)
-	{
-		std::cout << "The surface does not have a boundary. We return with empty result path. " << std::endl; 
-		result_path.clear();
-		return result_path;
-	}
-
-	std::vector<int> coverable_facets;
-	coverable_facets.resize(mesh_tri.size() / 3, 1);
-
-	// We find the first facet to be covered
-	std::pair<int, int> init_temp = locateFacet(mesh_tri, bd[0], bd[1]);
-
-	int init_facet_index = init_temp.first;
-
-	if (init_temp.second == 0)
-	{
-		result_path.emplace_back(mesh_tri[init_facet_index * 3 + 0]);
-		result_path.emplace_back(mesh_tri[init_facet_index * 3 + 1]);
-		result_path.emplace_back(mesh_tri[init_facet_index * 3 + 2]);
-	}
-	else if (init_temp.second == 1)
-	{
-		result_path.emplace_back(mesh_tri[init_facet_index * 3 + 2]);
-		result_path.emplace_back(mesh_tri[init_facet_index * 3 + 0]);
-		result_path.emplace_back(mesh_tri[init_facet_index * 3 + 1]);
-	}
-	else if (init_temp.second == 2)
-	{
-		result_path.emplace_back(mesh_tri[init_facet_index * 3 + 1]);
-		result_path.emplace_back(mesh_tri[init_facet_index * 3 + 2]);
-		result_path.emplace_back(mesh_tri[init_facet_index * 3 + 0]);
-	}
-	
-	std::vector<int> painted;
-	painted.resize(vertices.size() * 3, 0);
-
-	for (auto iter = result_path.begin(); iter != result_path.end(); ++iter)
-	{
-		painted[*iter] = 1;
-	}
-
-	// We assign connectivity of sub-facets
-	std::vector<std::vector<int> > sub_adjacency_matrix;
-	std::vector<int> temp;
-	temp.resize(mesh_tri.size(), 0);
-	sub_adjacency_matrix.resize( mesh_tri.size(), temp );
-
-	unsigned int facet_num = mesh_tri.size() / 3;
-	for (unsigned int i = 0; i < facet_num; ++i)
-	{
-		int v1 = mesh_tri[i * 3 + 0];
-		int v2 = mesh_tri[i * 3 + 1];
-		int v3 = mesh_tri[i * 3 + 2];
-
-		// We deal with the first edge
-		std::pair<int, int> temp = locateFacet(mesh_tri, v2, v1);
-		int theOther = temp.first;
-		if (theOther != -1 && coverable_facets[theOther] == 1)
-		{
-			int loc = temp.second;
-			if (loc == 0)
+			first_ver = v0;
+			second_ver = v1;
+			std::unordered_map<int, int>::iterator iter = amd.find(second_ver + first_ver * ver_num);
+			if (iter != amd.end())
 			{
-				sub_adjacency_matrix[3 * i + 2][3 * theOther + 0] = 1;
-				sub_adjacency_matrix[3 * i + 0][3 * theOther + 2] = 1;
+				int adj_tri_index = iter->second;
+				if (covered[adj_tri_index] == 0)
+				{
+					if (mesh_tri[adj_tri_index * 3] == second_ver && mesh_tri[adj_tri_index * 3 + 1] == first_ver)
+					{
+						subver_index = 0;
+					}
+					else if (mesh_tri[adj_tri_index * 3 + 1] == second_ver && mesh_tri[adj_tri_index * 3 + 2] == first_ver)
+					{
+						subver_index = 1;
+					}
+					else if (mesh_tri[adj_tri_index * 3 + 2] == second_ver && mesh_tri[adj_tri_index * 3] == first_ver)
+					{
+						subver_index = 2;
+					}
+					else
+					{
+						subver_index = 0;
+					}
+					Facet* the_child = insertTreeNode(the_node, mesh_tri, mesh_ver, adj_tri_index, subver_index, 0);
+					covered[adj_tri_index] = 1;
+					Q.emplace_back(the_child);
+				}
 			}
-			else if (loc == 1)
+
+			first_ver = v1;
+			second_ver = v2;
+			iter = amd.find(second_ver + first_ver * ver_num);
+			if (iter != amd.end())
 			{
-				sub_adjacency_matrix[3 * i + 2][3 * theOther + 1] = 1;
-				sub_adjacency_matrix[3 * i + 0][3 * theOther + 0] = 1;
+				int adj_tri_index = iter->second;
+				if (covered[adj_tri_index] == 0)
+				{
+					if (mesh_tri[adj_tri_index * 3] == second_ver && mesh_tri[adj_tri_index * 3 + 1] == first_ver)
+					{
+						subver_index = 0;
+					}
+					else if (mesh_tri[adj_tri_index * 3 + 1] == second_ver && mesh_tri[adj_tri_index * 3 + 2] == first_ver)
+					{
+						subver_index = 1;
+					}
+					else if (mesh_tri[adj_tri_index * 3 + 2] == second_ver && mesh_tri[adj_tri_index * 3] == first_ver)
+					{
+						subver_index = 2;
+					}
+					else
+					{
+						subver_index = 0;
+					}
+					Facet* the_child = insertTreeNode(the_node, mesh_tri, mesh_ver, adj_tri_index, subver_index, 1);
+					covered[adj_tri_index] = 1;
+					Q.emplace_back(the_child);
+				}
 			}
-			else if (loc == 2)
+
+			first_ver = v2;
+			second_ver = v0;
+			iter = amd.find(second_ver + first_ver * ver_num);
+			if (iter != amd.end())
 			{
-				sub_adjacency_matrix[3 * i + 2][3 * theOther + 2] = 1;
-				sub_adjacency_matrix[3 * i + 0][3 * theOther + 1] = 1;
+				int adj_tri_index = iter->second;
+				if (covered[adj_tri_index] == 0)
+				{
+					if (mesh_tri[adj_tri_index * 3] == second_ver && mesh_tri[adj_tri_index * 3 + 1] == first_ver)
+					{
+						subver_index = 0;
+					}
+					else if (mesh_tri[adj_tri_index * 3 + 1] == second_ver && mesh_tri[adj_tri_index * 3 + 2] == first_ver)
+					{
+						subver_index = 1;
+					}
+					else if (mesh_tri[adj_tri_index * 3 + 2] == second_ver && mesh_tri[adj_tri_index * 3] == first_ver)
+					{
+						subver_index = 2;
+					}
+					else
+					{
+						subver_index = 0;
+					}
+
+					Facet* the_child = insertTreeNode(the_node, mesh_tri, mesh_ver, adj_tri_index, subver_index, 2);
+					covered[adj_tri_index] = 1;
+					Q.emplace_back(the_child);
+				}
 			}
 		}
 
-		// We deal with the second edge
-		temp = locateFacet(mesh_tri, v3, v2);
-		theOther = temp.first;
-		if (theOther != -1 && coverable_facets[theOther] == 1)
-		{
-			int loc = temp.second;
-			if (loc == 0)
-			{
-				sub_adjacency_matrix[3 * i + 0][3 * theOther + 0] = 1;
-				sub_adjacency_matrix[3 * i + 1][3 * theOther + 2] = 1;
-			}
-			else if (loc == 1)
-			{
-				sub_adjacency_matrix[3 * i + 0][3 * theOther + 1] = 1;
-				sub_adjacency_matrix[3 * i + 1][3 * theOther + 0] = 1;
-			}
-			else if (loc == 2)
-			{
-				sub_adjacency_matrix[3 * i + 0][3 * theOther + 2] = 1;
-				sub_adjacency_matrix[3 * i + 1][3 * theOther + 1] = 1;
-			}
-		}
+		// We report the geometric coverage path
+		topological_coverage_path.clear();
+		geometric_coverage_path.clear();
 
-		// We deal with the third edge
-		temp = locateFacet(mesh_tri, v1, v3);
-		theOther = temp.first;
-		if (theOther != -1 && coverable_facets[theOther] == 1)
-		{
-			int loc = temp.second;
-			if (loc == 0)
-			{
-				sub_adjacency_matrix[3 * i + 1][3 * theOther + 0] = 1;
-				sub_adjacency_matrix[3 * i + 2][3 * theOther + 2] = 1;
-			}
-			else if (loc == 1)
-			{
-				sub_adjacency_matrix[3 * i + 1][3 * theOther + 1] = 1;
-				sub_adjacency_matrix[3 * i + 2][3 * theOther + 0] = 1;
-			}
-			else if (loc == 2)
-			{
-				sub_adjacency_matrix[3 * i + 1][3 * theOther + 2] = 1;
-				sub_adjacency_matrix[3 * i + 2][3 * theOther + 1] = 1;
-			}
-		}
-	}
+		int position_to_insert = 0;		
+		traverse(root_, mesh_tri, mesh_ver, topological_coverage_path, geometric_coverage_path, position_to_insert);
 
-	unsigned int i = 0;
-	while (i < result_path.size())
-	{
-		auto& temp = sub_adjacency_matrix[result_path[i]];
-		int loc = -1;
-		for (auto iter = temp.begin(); iter != temp.end(); ++iter)
+		std::cout << "size of int path: " << topological_coverage_path.size() << std::endl;
+
+		deleteTreeBranch(root_);
+
+		return std::pair<std::vector<int>, std::vector<double> >(topological_coverage_path, geometric_coverage_path);
+    }
+
+    std::pair<std::vector<int>, std::vector<double> > nuc(const std::vector<int>& mesh_tri, const std::vector<double>& mesh_ver)
+	{		
+		// Here we allow for [-1, -1, -1] triangle facet, so we need to find the first valid facet
+		int initial_tri_index = -1;
+		int tri_num = mesh_tri.size()/3;
+		
+		for(unsigned int i = 0; i < tri_num; ++i)
 		{
-			if (*iter == 1 && painted[iter-temp.begin()] == 0)
+			if(mesh_tri[i*3] != -1)
 			{
-				loc = iter - temp.begin();
+				initial_tri_index = i;
 				break;
 			}
 		}
 
-		if (loc == -1)
-		{
-			i++;
-			continue;
-		}
+		if(initial_tri_index == -1)
+			return std::pair<std::vector<int>, std::vector<double> >(std::vector<int>(), std::vector<double>());
 
-		// By the index of loc we may identify the index of vertex
-		int x = loc / 3;
-
-		int adj_ver = x;
-
-		std::vector<int> new_facets = vertices[adj_ver].sub_ver_;
-
-		int b = std::find(new_facets.begin(), new_facets.end(), loc) - new_facets.begin();
-		for (auto iter = new_facets.begin(); iter != new_facets.end(); ++iter)
-			painted[*iter] = 1;
-
-		std::vector<int> new_facets_temp;
-		if (b != 0)
-		{
-			new_facets_temp.assign(new_facets.begin()+b, new_facets.end());
-			new_facets_temp.insert(new_facets_temp.end(), new_facets.begin(), new_facets.begin() + b);
-		}
-		else
-		{
-			new_facets_temp.assign(new_facets.begin(), new_facets.end());
-		}
-
-		result_path.insert(result_path.begin() + i + 1, new_facets_temp.begin(), new_facets_temp.end());
-		i++;
+		return nuc(mesh_tri, mesh_ver, initial_tri_index);
 	}
 
-	return result_path;
 }
 
-std::vector<double> evaluate_ours_in_saddle(std::vector<int> mesh_tri, std::vector<double> mesh_ver)
+PYBIND11_MODULE(nuc_tmech23, m)
 {
-	// We do edge subdivision
-	std::vector<std::vector<int> > adjFacetList;
-	findAdjacentFacet(mesh_tri, mesh_tri.size() / 3, adjFacetList);
-
-	std::vector<double> sub_division_ver;
-	std::vector<int> sub_division_tri; // Each sub-facet has 4 vertices
-	std::vector<Vertex> vertices;
-	edgeDivision(mesh_ver, mesh_tri, mesh_tri.size() / 3, sub_division_ver, sub_division_tri, vertices);
-	for (unsigned int i = 0; i < vertices.size(); ++i)
-	{
-		vertices[i].adj_cell_.assign(adjFacetList[i].begin(), adjFacetList[i].end());
-	}
-
-	std::vector<double> polygon_center; // center of each sub-facets
-	// We find the center of sub-Facets
-	polygon_center.resize((mesh_tri.size() / 3) * 3 * 3, 0);
-	// One 3 is because each facet has been sub-divided into 3 sub-facets
-	// Another 3 is because we are using a 1-dim vector to store a n*3 matrix
-	for (unsigned int i = 0; i < (mesh_tri.size() / 3) * 3; ++i)
-	{
-		polygon_center[i * 3 + 0] = (sub_division_ver[sub_division_tri[i * 4 + 0] * 3 + 0] +
-			sub_division_ver[sub_division_tri[i * 4 + 1] * 3 + 0] +
-			sub_division_ver[sub_division_tri[i * 4 + 2] * 3 + 0] +
-			sub_division_ver[sub_division_tri[i * 4 + 3] * 3 + 0]) / 4;
-		polygon_center[i * 3 + 1] = (sub_division_ver[sub_division_tri[i * 4 + 0] * 3 + 1] +
-			sub_division_ver[sub_division_tri[i * 4 + 1] * 3 + 1] +
-			sub_division_ver[sub_division_tri[i * 4 + 2] * 3 + 1] +
-			sub_division_ver[sub_division_tri[i * 4 + 3] * 3 + 1]) / 4;
-		polygon_center[i * 3 + 2] = (sub_division_ver[sub_division_tri[i * 4 + 0] * 3 + 2] +
-			sub_division_ver[sub_division_tri[i * 4 + 1] * 3 + 2] +
-			sub_division_ver[sub_division_tri[i * 4 + 2] * 3 + 2] +
-			sub_division_ver[sub_division_tri[i * 4 + 3] * 3 + 2]) / 4;
-	}
-
-	// We generate the template-independent motion
-	std::vector<int> result_path = NUC(mesh_tri, mesh_ver, vertices);
-
-	// We find the 3D coordinate of the skeleton
-	std::vector<double> V;
-	V.resize(result_path.size() * 3);
-	for (unsigned int i = 0; i < result_path.size(); ++i)
-	{
-		V[i * 3 + 0] = polygon_center[result_path[i] * 3 + 0];
-		V[i * 3 + 1] = polygon_center[result_path[i] * 3 + 1];
-		V[i * 3 + 2] = polygon_center[result_path[i] * 3 + 2];
-	}
-
-	return V;
+	m.def("run", static_cast<std::pair<std::vector<int>, std::vector<double> > (*)(const std::vector<int>&, const std::vector<double>&)>(&NUC::nuc));
+	m.def("run", static_cast<std::pair<std::vector<int>, std::vector<double> > (*)(const std::vector<int>&, const std::vector<double>&, int)>(&NUC::nuc));
 }
-
-
-std::vector<double> add(std::vector<int> mesh_tri, std::vector<double> mesh_ver)
-{
-	std::vector<double> result;
-	result = evaluate_ours_in_saddle(mesh_tri, mesh_ver);
-    return result;
-}
-
-PYBIND11_MODULE(nuc, m)
-{
-    m.doc() = "pybind11 example";
-    m.def("add", &add, "A function that adds two numbers.");
-}
-
-
