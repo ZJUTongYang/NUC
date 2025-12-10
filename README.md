@@ -1,6 +1,10 @@
 # Non-revisiting Uniform Coverage (NUC)
 
-[(To use this code in ROS, see this ROS package)](https://github.com/ZJUTongYang/nuc_ros)
+[(To use this algorithm in ROS, see this ROS package)](https://github.com/ZJUTongYang/nuc_ros)
+
+[(To use this algorithm in ROS2, see this ROS2 package)](https://github.com/ZJUTongYang/nuc_ros2)
+
+[(ONGOING: We are actively developing a benchmarking platform for 3D surface coverage and this algorithm must be there)](https://github.com/ZJUTongYang/benchmarking_3dcpp)
 
 This repository contains the supplementary materal (code and video) for the journal paper entitled "Template-free Non-revisiting Uniform Coverage Path Planning on Curved Surfaces", IEEE/ASME Transactions on Mechatronics (T-Mech). 
 
